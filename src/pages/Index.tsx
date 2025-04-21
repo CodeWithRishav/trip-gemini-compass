@@ -16,10 +16,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
 
-  // For API Key: supports both OpenAI and Gemini
   const [apiKey, setApiKey] = useState<string>(() => window.localStorage.getItem('ai_api_key') || "");
-
-  // Keep track if the api key is Gemini (starts with AIza) or OpenAI (starts with sk-)
   const isGeminiKey = apiKey.trim().startsWith('AIza');
 
   useEffect(() => {
@@ -31,7 +28,6 @@ const Index = () => {
     ]);
   }, []);
 
-  // Save API key to local storage for convenience
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
     window.localStorage.setItem('ai_api_key', e.target.value);
@@ -42,7 +38,6 @@ const Index = () => {
     setIsLoading(true);
 
     try {
-      // Fallback to mock if no API key
       if (!apiKey) {
         setMessages(prev => [
           ...prev,
@@ -58,7 +53,6 @@ const Index = () => {
       let assistantContent = '';
       let parsed: any;
 
-      // Gemini API
       if (isGeminiKey) {
         const geminiReqBody = {
           contents: [
@@ -77,11 +71,9 @@ const Index = () => {
           throw new Error(`Gemini error: ${response.status} ${await response.text()}`);
         }
         const data = await response.json();
-        // Concatenate all generated parts (Gemini can split output into parts)
         assistantContent = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") || "";
 
-        // Try to extract first JSON code block if present, else try as whole
-        let match = assistantContent.match(/```json\s*([\s\S]+?)```/i);
+        let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
         let jsonStr = match ? match[1] : assistantContent;
 
         try {
@@ -104,7 +96,6 @@ const Index = () => {
         return;
       }
 
-      // OpenAI fallback
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -127,25 +118,55 @@ const Index = () => {
       }
       const data = await response.json();
       assistantContent = data.choices?.[0]?.message?.content || '';
+
+      let jsonStr = "";
+
       let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
-      let jsonStr = match ? match[1] : assistantContent;
+      if (match) {
+        jsonStr = match[1];
+      } else {
+        match = assistantContent.match(/```([\s\S]+?)```/);
+        if (match) {
+          jsonStr = match[1];
+        } else {
+          match = assistantContent.match(/\{[\s\S]*\}/m);
+          if (match) {
+            jsonStr = match[0];
+          } else {
+            jsonStr = assistantContent;
+          }
+        }
+      }
+
+      jsonStr = jsonStr.trim();
+
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
         setMessages(prev => [
           ...prev,
-          { role: 'assistant', content: "Sorry, I couldn't parse the AI's response. Please try again or rephrase your query." }
+          { 
+            role: 'assistant', 
+            content: "Sorry, I couldn't parse the AI's response. This sometimes happens if the AI includes non-JSON text or formatting. Please try again or rephrase your query. \n\nDetails: " + 
+              (e instanceof Error ? e.message : String(e)) +
+              "\n\nAI response was:\n" + assistantContent
+          }
         ]);
         setIsLoading(false);
+        toast({
+          title: 'Parsing Error',
+          description: (e instanceof Error ? e.message : String(e)),
+          variant: 'destructive',
+        });
         return;
       }
+
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: parsed.summary }
       ]);
       setCurrentTrip(parsed.trip);
       setIsLoading(false);
-
     } catch (error) {
       console.error('Error generating response:', error);
       setMessages(prev => [...prev, { 
@@ -198,7 +219,6 @@ const Index = () => {
     <div className="flex flex-col min-h-screen bg-background hero-pattern">
       <Header />
 
-      {/* API Key Notice */}
       <div className="flex justify-center bg-yellow-50 py-2 border-b border-yellow-300">
         <div className="flex flex-col items-center gap-2">
           <span className="text-sm text-yellow-900">
@@ -221,7 +241,6 @@ const Index = () => {
 
       <main className="flex-grow container mx-auto py-6 px-4">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Chat Section */}
           <div className="lg:col-span-4 h-[calc(100vh-200px)]">
             <ChatContainer 
               messages={messages} 
@@ -230,12 +249,10 @@ const Index = () => {
             />
           </div>
 
-          {/* Itinerary Section */}
           <div className="lg:col-span-6 h-[calc(100vh-200px)]">
             <ItineraryContainer trip={currentTrip} />
           </div>
 
-          {/* Expenses Section */}
           <div className="lg:col-span-2 h-[calc(100vh-200px)] flex flex-col gap-4">
             <AddExpense onAddExpense={handleAddExpense} />
             <div className="flex-grow overflow-hidden">
