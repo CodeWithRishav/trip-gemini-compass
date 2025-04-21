@@ -22,6 +22,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [useAI, setUseAI] = useState(true);
 
   useEffect(() => {
     setMessages([
@@ -41,111 +42,121 @@ const Index = () => {
       let assistantContent = '';
       let parsed: any;
 
-      // Use the fallback mock implementation instead of getting 404 errors
-      // This will provide a good user experience while the Gemini API issue is resolved
-      const mockResponse = generateMockAIResponse(message);
-      parsed = mockResponse;
-      
-      /* Commented out the current Gemini API call because it's causing 404 errors
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: AI_SYSTEM_PROMPT },
-                { text: message }
-              ]
+      if (useAI) {
+        // Correct Gemini API endpoint for standard Gemini accounts
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: AI_SYSTEM_PROMPT },
+                  { text: message }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.4,
+              maxOutputTokens: 1800,
             }
-          ],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 1800,
-          }
-        })
-      });
+          })
+        });
 
-      const responseData = await response.text();
-      
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status} ${responseData}`);
-      }
-      
-      const data = JSON.parse(responseData);
-      assistantContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-      let jsonStr = "";
-
-      let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
-      if (match) {
-        jsonStr = match[1];
-      } else {
-        match = assistantContent.match(/```([\s\S]+?)```/);
-        if (match) {
-          jsonStr = match[1];
+        if (!response.ok) {
+          const responseData = await response.text();
+          console.error("API Response error:", responseData);
+          
+          // If we get an error with the AI, fall back to the mock implementation
+          toast({
+            title: 'AI Service Error',
+            description: `Falling back to demo mode. API error: ${response.status}`,
+            variant: 'destructive',
+          });
+          
+          const mockResponse = generateMockAIResponse(message);
+          parsed = mockResponse;
+          setUseAI(false);
         } else {
-          match = assistantContent.match(/\{[\s\S]*\}/m);
+          const data = await response.json();
+          assistantContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          
+          let jsonStr = "";
+
+          // Try to extract JSON from the response
+          let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
           if (match) {
-            jsonStr = match[0];
+            jsonStr = match[1];
           } else {
-            jsonStr = assistantContent;
+            match = assistantContent.match(/```([\s\S]+?)```/);
+            if (match) {
+              jsonStr = match[1];
+            } else {
+              match = assistantContent.match(/\{[\s\S]*\}/m);
+              if (match) {
+                jsonStr = match[0];
+              } else {
+                jsonStr = assistantContent;
+              }
+            }
+          }
+
+          jsonStr = jsonStr.trim();
+
+          try {
+            parsed = JSON.parse(jsonStr);
+            
+            if (!parsed.trip || !parsed.summary) {
+              throw new Error("Response missing required trip or summary property");
+            }
+            
+            const trip = parsed.trip;
+            if (!trip.destination || !Array.isArray(trip.days)) {
+              throw new Error("Trip data is incomplete");
+            }
+            
+            if (!trip.id) {
+              trip.id = uuidv4();
+            }
+            
+            if (!Array.isArray(trip.expenses)) {
+              trip.expenses = [];
+            }
+            
+            if (typeof trip.totalExpenses !== 'number') {
+              trip.totalExpenses = 0;
+            }
+          } catch (e) {
+            try {
+              jsonStr = jsonStr.replace(/\\"/g, '"').replace(/^"/, '').replace(/"$/, '');
+              parsed = JSON.parse(jsonStr);
+            } catch (innerError) {
+              throw new Error(`Failed to parse response: ${e instanceof Error ? e.message : String(e)}`);
+            }
           }
         }
+      } else {
+        // Use mock implementation as fallback
+        const mockResponse = generateMockAIResponse(message);
+        parsed = mockResponse;
+        
+        toast({
+          title: 'Using Demo Mode',
+          description: 'Using a demo response. To use AI, please check your API key or quota.',
+          variant: 'default',
+        });
       }
 
-      jsonStr = jsonStr.trim();
-
-      try {
-        parsed = JSON.parse(jsonStr);
-        
-        if (!parsed.trip || !parsed.summary) {
-          throw new Error("Response missing required trip or summary property");
-        }
-        
-        const trip = parsed.trip;
-        if (!trip.destination || !Array.isArray(trip.days)) {
-          throw new Error("Trip data is incomplete");
-        }
-        
-        if (!trip.id) {
-          trip.id = uuidv4();
-        }
-        
-        if (!Array.isArray(trip.expenses)) {
-          trip.expenses = [];
-        }
-        
-        if (typeof trip.totalExpenses !== 'number') {
-          trip.totalExpenses = 0;
-        }
-      } catch (e) {
-        try {
-          jsonStr = jsonStr.replace(/\\"/g, '"').replace(/^"/, '').replace(/"$/, '');
-          parsed = JSON.parse(jsonStr);
-        } catch (innerError) {
-          throw new Error(`Failed to parse response: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-      */
-
-      // Set the assistant message with the summary from the mock response
+      // Set the assistant message with the summary
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: parsed.summary }
       ]);
       setCurrentTrip(parsed.trip);
       setIsLoading(false);
-      
-      // Add a toast to let the user know we're using a mock implementation
-      toast({
-        title: 'Using Demo Mode',
-        description: 'Using a demo response while the Gemini API is being configured.',
-        variant: 'default',
-      });
     } catch (error) {
       console.error('Error generating response:', error);
       
@@ -168,6 +179,9 @@ const Index = () => {
         description: typeof error === "object" && error ? (error as Error).message : String(error),
         variant: 'destructive',
       });
+      
+      // Fall back to mock implementation for future requests
+      setUseAI(false);
     }
   };
 
@@ -212,6 +226,19 @@ const Index = () => {
           <div className="flex flex-col items-center gap-2">
             <Alert variant="destructive" className="py-2 w-full max-w-md">
               <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          </div>
+        </div>
+      )}
+      
+      {!useAI && (
+        <div className="flex justify-center bg-amber-50 py-2 border-b border-amber-300">
+          <div className="flex items-center gap-2">
+            <Alert className="py-2 w-full max-w-md bg-amber-50 border-amber-200">
+              <AlertTitle>Demo Mode Active</AlertTitle>
+              <AlertDescription>
+                Using demo responses instead of AI. Check your Gemini API key or quota.
+              </AlertDescription>
             </Alert>
           </div>
         </div>
