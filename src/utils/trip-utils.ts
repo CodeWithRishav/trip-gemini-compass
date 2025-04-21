@@ -1,4 +1,3 @@
-
 import { v4 as uuidv4 } from 'uuid';
 import { Activity, AIResponse, Trip, TripDay } from '@/types';
 
@@ -98,51 +97,85 @@ export const generateMockAIResponse = (prompt: string): AIResponse => {
     }
   };
 
-  // Parse the prompt to extract destination and duration
-  let destination = "london"; // Default
+  // Parse the prompt to extract the city (destination)
+  let matchedCity = "";
+  let destination = "london"; // default fallback
   let days = 3; // Default
   let budget = 1000; // Default
-  
+
   const lowerPrompt = prompt.toLowerCase();
-  
-  // Check for destinations
+
+  // Find all words that start with a capital letter
+  const cityFromPrompt = (() => {
+    // Try to match city names in quotes, or "trip to XYZ", or "in XYZ"
+    const match = lowerPrompt.match(/(?:trip to|in|to|for|at)\s+([a-zA-Z\s]+)/);
+    if (match && match[1]) {
+      // Clean up the city string (remove extra words like 'with', 'for', numbers)
+      return match[1].replace(/(with|for|under|around|focus.*|budget.*|days?|\d+)/gi, '').trim();
+    }
+    // Otherwise try for capitalized words
+    const capitals = prompt.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g);
+    if (capitals && capitals.length > 0) {
+      // Attempt to select a value that isn't "Trip", "Weekend", etc.
+      return capitals.find(str => !/Trip|Weekend|Day|Days|Family|Couple|Budget|Romantic/.test(str)) || capitals[0];
+    }
+    return "London";
+  })();
+
+  // Check for matching cities in known set, otherwise use found or fallback
   Object.keys(destinations).forEach(dest => {
-    if (lowerPrompt.includes(dest.toLowerCase())) {
-      destination = dest;
+    if (lowerPrompt.includes(dest.toLowerCase()) ||
+        cityFromPrompt.toLowerCase().includes(dest.toLowerCase())) {
+      matchedCity = dest;
     }
   });
-  
-  // Check for duration
+
+  // Set the "destination" to whatever was found (matched or generic)
+  destination = matchedCity ? matchedCity : (cityFromPrompt || "London");
+
+  // Duration extraction (same as before)
   const durationMatch = lowerPrompt.match(/(\d+)\s*(day|days)/);
   if (durationMatch) {
     days = parseInt(durationMatch[1]);
   }
-  
-  // Check for budget
+
+  // Budget extraction (same as before)
   const budgetMatch = lowerPrompt.match(/\$(\d+)/);
   if (budgetMatch) {
     budget = parseInt(budgetMatch[1]);
   }
-  
-  // Generate trip days
+
+  // Dates
   const startDate = new Date().toISOString().split('T')[0];
   const endDate = addDaysToDate(startDate, days - 1);
-  
-  // Select destination activities
-  const destinationActivities = destinations[destination as keyof typeof destinations]?.activities || destinations.london.activities;
-  
-  // Create trip days
+
+  // Try to get activities for the matched city, else use generic activities
+  let destinationActivities;
+  if (matchedCity) {
+    destinationActivities = destinations[matchedCity as keyof typeof destinations].activities;
+  } else {
+    // Generate generic activities for any entered city
+    destinationActivities = [
+      { title: `Central Market of ${destination}`, category: "attraction", cost: 10 },
+      { title: `City Museum of ${destination}`, category: "attraction", cost: 15 },
+      { title: `Famous Park in ${destination}`, category: "attraction", cost: 0 },
+      { title: `Local Diner in ${destination}`, category: "food", cost: 20 },
+      { title: `Top-rated Restaurant in ${destination}`, category: "food", cost: 35 },
+      { title: `Comfort Hotel ${destination}`, category: "accommodation", cost: 120 },
+      { title: `Downtown Guesthouse ${destination}`, category: "accommodation", cost: 80 },
+      { title: `Public Transit Day Pass`, category: "transportation", cost: 12 },
+    ];
+  }
+
+  // The rest of the logic: generate tripDays, etc. - re-use existing logic with the new activities
   const tripDays: TripDay[] = [];
-  
-  // Pick a hotel for the entire stay
   const hotels = destinationActivities.filter(a => a.category === "accommodation")
     .sort(() => 0.5 - Math.random());
-  
   const hotel = hotels[0];
-  
+
   for (let i = 0; i < days; i++) {
     const dayActivities: Activity[] = [];
-    
+
     // Add hotel as first activity
     dayActivities.push({
       id: uuidv4(),
@@ -153,57 +186,57 @@ export const generateMockAIResponse = (prompt: string): AIResponse => {
       cost: hotel.cost,
       category: "accommodation"
     });
-    
+
     // Add 2-3 attractions
     const attractions = destinationActivities
       .filter(a => a.category === "attraction")
       .sort(() => 0.5 - Math.random())
       .slice(0, 3);
-    
+
     // Add 2-3 meals
     const meals = destinationActivities
       .filter(a => a.category === "food")
       .sort(() => 0.5 - Math.random())
       .slice(0, 3);
-    
+
     // Add transportation
     const transportation = destinationActivities
       .filter(a => a.category === "transportation")
       .sort(() => 0.5 - Math.random())[0];
-    
+
     // Schedule morning activity
     dayActivities.push({
       id: uuidv4(),
       time: "10:00 AM",
-      title: attractions[0].title,
-      description: `Visit ${attractions[0].title}`,
+      title: attractions[0]?.title ?? `Explore ${destination}`,
+      description: `Visit ${attractions[0]?.title ?? destination}`,
       location: destination,
-      cost: attractions[0].cost,
+      cost: attractions[0]?.cost ?? 0,
       category: "attraction"
     });
-    
+
     // Schedule lunch
     dayActivities.push({
       id: uuidv4(),
       time: "12:30 PM",
-      title: meals[0].title,
-      description: `Lunch at ${meals[0].title}`,
+      title: meals[0]?.title ?? `Meal in ${destination}`,
+      description: `Lunch at ${meals[0]?.title ?? destination}`,
       location: destination,
-      cost: meals[0].cost,
+      cost: meals[0]?.cost ?? 10,
       category: "food"
     });
-    
+
     // Schedule afternoon activity
     dayActivities.push({
       id: uuidv4(),
       time: "02:00 PM",
-      title: attractions[1].title,
-      description: `Visit ${attractions[1].title}`,
+      title: attractions[1]?.title ?? `Visit Park in ${destination}`,
+      description: `Visit ${attractions[1]?.title ?? destination}`,
       location: destination,
-      cost: attractions[1].cost,
+      cost: attractions[1]?.cost ?? 0,
       category: "attraction"
     });
-    
+
     // Schedule evening activity
     if (attractions[2]) {
       dayActivities.push({
@@ -216,35 +249,37 @@ export const generateMockAIResponse = (prompt: string): AIResponse => {
         category: "attraction"
       });
     }
-    
+
     // Schedule dinner
     dayActivities.push({
       id: uuidv4(),
       time: "07:00 PM",
-      title: meals[1].title,
-      description: `Dinner at ${meals[1].title}`,
+      title: meals[1]?.title ?? `Dinner at ${destination}`,
+      description: `Dinner at ${meals[1]?.title ?? destination}`,
       location: destination,
-      cost: meals[1].cost,
+      cost: meals[1]?.cost ?? 20,
       category: "food"
     });
-    
+
     // Add transportation for the day
-    dayActivities.push({
-      id: uuidv4(),
-      time: "All day",
-      title: transportation.title,
-      description: `Transportation for day ${i + 1}`,
-      location: destination,
-      cost: transportation.cost,
-      category: "transportation"
-    });
-    
+    if (transportation) {
+      dayActivities.push({
+        id: uuidv4(),
+        time: "All day",
+        title: transportation.title,
+        description: `Transportation for day ${i + 1}`,
+        location: destination,
+        cost: transportation.cost,
+        category: "transportation"
+      });
+    }
+
     tripDays.push({
       day: i + 1,
       activities: dayActivities
     });
   }
-  
+
   // Calculate total trip cost
   let totalCost = 0;
   tripDays.forEach(day => {
@@ -252,11 +287,13 @@ export const generateMockAIResponse = (prompt: string): AIResponse => {
       totalCost += activity.cost || 0;
     });
   });
-  
-  // Create trip object
+
+  // Create trip object using entered city capitalization for nice effect
+  const capitalizedDestination = destination.charAt(0).toUpperCase() + destination.slice(1);
+
   const trip: Trip = {
     id: uuidv4(),
-    destination: destination.charAt(0).toUpperCase() + destination.slice(1),
+    destination: capitalizedDestination,
     startDate,
     endDate,
     budget,
@@ -264,10 +301,10 @@ export const generateMockAIResponse = (prompt: string): AIResponse => {
     expenses: [],
     totalExpenses: 0
   };
-  
+
   // Create summary based on destination and duration
-  const summary = `Here's your ${days}-day trip to ${trip.destination} with a budget of $${budget}. I've included various attractions, restaurants, and transportation options. The estimated total cost is $${totalCost}. You can view and edit the detailed itinerary below.`;
-  
+  const summary = `Here's your ${days}-day trip to ${trip.destination} with a budget of $${budget}. I've included attractions, restaurants, and transportation options for ${trip.destination}. Estimated total cost is $${totalCost}. You can view and edit the detailed itinerary below.`;
+
   return {
     trip,
     summary
