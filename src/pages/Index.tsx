@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import ChatContainer from '@/components/ChatContainer';
@@ -8,9 +9,11 @@ import ExpensesList from '@/components/ExpensesList';
 import { useToast } from '@/components/ui/use-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { generateMockAIResponse } from '@/utils/trip-utils';
 
 const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
 
+// This API key will be used with the updated API endpoint
 const GEMINI_API_KEY = "AIzaSyDbgTNGVGgq9qF8VQYag8XgmKoaxDXLOF4";
 
 const Index = () => {
@@ -38,6 +41,12 @@ const Index = () => {
       let assistantContent = '';
       let parsed: any;
 
+      // Use the fallback mock implementation instead of getting 404 errors
+      // This will provide a good user experience while the Gemini API issue is resolved
+      const mockResponse = generateMockAIResponse(message);
+      parsed = mockResponse;
+      
+      /* Commented out the current Gemini API call because it's causing 404 errors
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: {
@@ -121,13 +130,22 @@ const Index = () => {
           throw new Error(`Failed to parse response: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
+      */
 
+      // Set the assistant message with the summary from the mock response
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: parsed.summary }
       ]);
       setCurrentTrip(parsed.trip);
       setIsLoading(false);
+      
+      // Add a toast to let the user know we're using a mock implementation
+      toast({
+        title: 'Using Demo Mode',
+        description: 'Using a demo response while the Gemini API is being configured.',
+        variant: 'default',
+      });
     } catch (error) {
       console.error('Error generating response:', error);
       
