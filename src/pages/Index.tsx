@@ -11,7 +11,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
 
-const DEFAULT_API_KEY = "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";
+const GEMINI_API_KEY = "AIzaSyDxkl9w3cWE35Zw59aayLVZgMeHYcCL7es";
 
 const Index = () => {
   const { toast } = useToast();
@@ -19,9 +19,6 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const [apiKey, setApiKey] = useState<string>(DEFAULT_API_KEY);
-  const isGeminiKey = apiKey.trim().startsWith('AIza');
 
   useEffect(() => {
     setMessages([
@@ -32,12 +29,6 @@ const Index = () => {
     ]);
   }, []);
 
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setApiKey(e.target.value);
-    window.localStorage.setItem('ai_api_key', e.target.value);
-    setErrorMessage(null);
-  };
-
   const handleSendMessage = async (message: string) => {
     setMessages(prev => [...prev, { role: 'user', content: message }]);
     setIsLoading(true);
@@ -47,38 +38,36 @@ const Index = () => {
       let assistantContent = '';
       let parsed: any;
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: AI_SYSTEM_PROMPT },
-            { role: "user", content: message }
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: AI_SYSTEM_PROMPT },
+                { text: message }
+              ]
+            }
           ],
-          temperature: 0.4,
-          max_tokens: 1800,
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1800,
+          }
         })
       });
 
       const responseData = await response.text();
       
       if (!response.ok) {
-        if (response.status === 429) {
-          if (responseData.includes("insufficient_quota")) {
-            throw new Error("API key has exceeded its quota. Please notify the developer to update the API key.");
-          } else {
-            throw new Error("Too many requests to OpenAI. Please wait a moment and try again.");
-          }
-        }
-        throw new Error(`OpenAI error: ${response.status} ${responseData}`);
+        throw new Error(`Gemini API error: ${response.status} ${responseData}`);
       }
       
       const data = JSON.parse(responseData);
-      assistantContent = data.choices?.[0]?.message?.content || '';
+      assistantContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       let jsonStr = "";
 
@@ -145,13 +134,7 @@ const Index = () => {
       let errorMsg = 'Sorry, I encountered an error while planning your trip.';
       
       if (error instanceof Error) {
-        if (error.message.includes("insufficient_quota")) {
-          errorMsg = "The API key has exceeded its quota. Please notify the developer to update the API key.";
-        } else if (error.message.includes("invalid_api_key")) {
-          errorMsg = "The API key appears to be invalid. Please notify the developer.";
-        } else {
-          errorMsg += ` ${error.message}`;
-        }
+        errorMsg += ` ${error.message}`;
       }
       
       setMessages(prev => [...prev, { 
