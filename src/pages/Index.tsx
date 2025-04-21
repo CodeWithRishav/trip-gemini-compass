@@ -1,10 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import ChatContainer from '@/components/ChatContainer';
 import ItineraryContainer from '@/components/ItineraryContainer';
 import { Trip, AIMessage, Expense } from '@/types';
-// import { generateMockAIResponse } from '@/utils/trip-utils'; // No longer used
 import AddExpense from '@/components/AddExpense';
 import ExpensesList from '@/components/ExpensesList';
 import { useToast } from '@/components/ui/use-toast';
@@ -17,10 +15,13 @@ const Index = () => {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
-  // For API Key
+
+  // For API Key: supports both OpenAI and Gemini
   const [apiKey, setApiKey] = useState<string>(() => window.localStorage.getItem('ai_api_key') || "");
 
-  // Initialize with welcome message from assistant
+  // Keep track if the api key is Gemini (starts with AIza) or OpenAI (starts with sk-)
+  const isGeminiKey = apiKey.trim().startsWith('AIza');
+
   useEffect(() => {
     setMessages([
       {
@@ -54,7 +55,56 @@ const Index = () => {
         return;
       }
 
-      // CALL THE AI API (OpenAI's ChatGPT as example)
+      let assistantContent = '';
+      let parsed: any;
+
+      // Gemini API
+      if (isGeminiKey) {
+        const geminiReqBody = {
+          contents: [
+            { role: "user", parts: [{ text: `${AI_SYSTEM_PROMPT}\n\n${message}` }] }
+          ]
+        };
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(geminiReqBody),
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Gemini error: ${response.status} ${await response.text()}`);
+        }
+        const data = await response.json();
+        // Concatenate all generated parts (Gemini can split output into parts)
+        assistantContent = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") || "";
+
+        // Try to extract first JSON code block if present, else try as whole
+        let match = assistantContent.match(/```json\s*([\s\S]+?)```/i);
+        let jsonStr = match ? match[1] : assistantContent;
+
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch (e) {
+          setMessages(prev => [
+            ...prev,
+            { role: 'assistant', content: "Sorry, I couldn't parse Gemini's response. Please try again or rephrase your query." }
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: parsed.summary }
+        ]);
+        setCurrentTrip(parsed.trip);
+        setIsLoading(false);
+        return;
+      }
+
+      // OpenAI fallback
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -75,15 +125,10 @@ const Index = () => {
       if (!response.ok) {
         throw new Error(`OpenAI error: ${response.status} ${await response.text()}`);
       }
-
       const data = await response.json();
-      // Parse response to extract JSON object from the AI's reply
-      // Try to parse first code block if present; else parse whole text as JSON
-      let assistantContent = data.choices?.[0]?.message?.content || '';
+      assistantContent = data.choices?.[0]?.message?.content || '';
       let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
       let jsonStr = match ? match[1] : assistantContent;
-
-      let parsed;
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
@@ -94,14 +139,10 @@ const Index = () => {
         setIsLoading(false);
         return;
       }
-
-      // Add assistant response to chat
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: parsed.summary }
       ]);
-
-      // Update current trip
       setCurrentTrip(parsed.trip);
       setIsLoading(false);
 
@@ -161,14 +202,14 @@ const Index = () => {
       <div className="flex justify-center bg-yellow-50 py-2 border-b border-yellow-300">
         <div className="flex flex-col items-center gap-2">
           <span className="text-sm text-yellow-900">
-            To plan trips for any city, you need an OpenAI API key (get one at <a href="https://platform.openai.com/account/api-keys" className="underline" target="_blank" rel="noopener noreferrer">OpenAI</a>)
+            To plan trips for any city, you need an OpenAI or Gemini (Google) API key (get OpenAI at <a href="https://platform.openai.com/account/api-keys" className="underline" target="_blank" rel="noopener noreferrer">OpenAI</a>{' '}and Gemini at <a href="https://aistudio.google.com/app/apikey" className="underline" target="_blank" rel="noopener noreferrer">Gemini</a>)
           </span>
           <span className="flex items-center gap-2 text-sm">
             <label htmlFor="openai-api-key" className="mr-2">API Key:</label>
             <input
               id="openai-api-key"
               className="border px-2 py-1 rounded w-72 text-xs"
-              placeholder="sk-..."
+              placeholder="sk-... or AIza..."
               type="password"
               value={apiKey}
               onChange={handleApiKeyChange}
