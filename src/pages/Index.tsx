@@ -7,6 +7,7 @@ import AddExpense from '@/components/AddExpense';
 import ExpensesList from '@/components/ExpensesList';
 import { useToast } from '@/components/ui/use-toast';
 import { v4 as uuidv4 } from 'uuid';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
 
@@ -15,6 +16,7 @@ const Index = () => {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [apiKey, setApiKey] = useState<string>(() => window.localStorage.getItem('ai_api_key') || "");
   const isGeminiKey = apiKey.trim().startsWith('AIza');
@@ -31,11 +33,13 @@ const Index = () => {
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
     window.localStorage.setItem('ai_api_key', e.target.value);
+    setErrorMessage(null);
   };
 
   const handleSendMessage = async (message: string) => {
     setMessages(prev => [...prev, { role: 'user', content: message }]);
     setIsLoading(true);
+    setErrorMessage(null);
 
     try {
       if (!apiKey) {
@@ -67,9 +71,12 @@ const Index = () => {
             body: JSON.stringify(geminiReqBody),
           }
         );
+        
         if (!response.ok) {
-          throw new Error(`Gemini error: ${response.status} ${await response.text()}`);
+          const errorText = await response.text();
+          throw new Error(`Gemini error: ${response.status} ${errorText}`);
         }
+        
         const data = await response.json();
         assistantContent = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") || "";
 
@@ -113,10 +120,20 @@ const Index = () => {
         })
       });
 
+      const responseData = await response.text();
+      
       if (!response.ok) {
-        throw new Error(`OpenAI error: ${response.status} ${await response.text()}`);
+        if (response.status === 429) {
+          if (responseData.includes("insufficient_quota")) {
+            throw new Error("Your OpenAI API key has exceeded its quota. Please check your OpenAI account billing or try a different API key.");
+          } else {
+            throw new Error("Too many requests to OpenAI. Please wait a moment and try again.");
+          }
+        }
+        throw new Error(`OpenAI error: ${response.status} ${responseData}`);
       }
-      const data = await response.json();
+      
+      const data = JSON.parse(responseData);
       assistantContent = data.choices?.[0]?.message?.content || '';
 
       let jsonStr = "";
@@ -143,15 +160,8 @@ const Index = () => {
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
-        setMessages(prev => [
-          ...prev,
-          { 
-            role: 'assistant', 
-            content: "Sorry, I couldn't parse the AI's response. This sometimes happens if the AI includes non-JSON text or formatting. Please try again or rephrase your query. \n\nDetails: " + 
-              (e instanceof Error ? e.message : String(e)) +
-              "\n\nAI response was:\n" + assistantContent
-          }
-        ]);
+        const errorMsg = "Sorry, I couldn't parse the AI's response. Please try again or rephrase your query.";
+        setMessages(prev => [...prev, { role: 'assistant', content: errorMsg }]);
         setIsLoading(false);
         toast({
           title: 'Parsing Error',
@@ -169,10 +179,25 @@ const Index = () => {
       setIsLoading(false);
     } catch (error) {
       console.error('Error generating response:', error);
+      
+      let errorMsg = 'Sorry, I encountered an error while planning your trip.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes("insufficient_quota")) {
+          errorMsg = "Your OpenAI API key has exceeded its quota. Please check your billing details or try a different API key.";
+        } else if (error.message.includes("invalid_api_key")) {
+          errorMsg = "Your API key appears to be invalid. Please check it and try again.";
+        } else {
+          errorMsg += ` ${error.message}`;
+        }
+      }
+      
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: 'Sorry, I encountered an error while planning your trip. Please check your API key and try again.' 
+        content: errorMsg
       }]);
+      
+      setErrorMessage(errorMsg);
       setIsLoading(false);
 
       toast({
@@ -236,6 +261,12 @@ const Index = () => {
               autoComplete="off"
             />
           </span>
+          
+          {errorMessage && (
+            <Alert variant="destructive" className="mt-2 py-2 w-full max-w-md">
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          )}
         </div>
       </div>
 
