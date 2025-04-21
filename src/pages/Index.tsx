@@ -14,7 +14,7 @@ import { generateMockAIResponse } from '@/utils/trip-utils';
 const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
 
 // This API key will be used with the updated API endpoint
-const GEMINI_API_KEY = "AIzaSyDbgTNGVGgq9qF8VQYag8XgmKoaxDXLOF4";
+const GEMINI_API_KEY = "AIzaSyDWSJavzQNqSOoRooFxWKKNbeDjpz3Dtmw";
 
 const Index = () => {
   const { toast } = useToast();
