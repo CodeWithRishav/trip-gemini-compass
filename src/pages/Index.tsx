@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import ChatContainer from '@/components/ChatContainer';
@@ -8,6 +9,7 @@ import ExpensesList from '@/components/ExpensesList';
 import { useToast } from '@/components/ui/use-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { generateMockAIResponse } from '@/utils/trip-utils';
 
 const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
 
@@ -19,6 +21,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     setMessages([
@@ -35,7 +38,8 @@ const Index = () => {
     setErrorMessage(null);
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+      // Updated Gemini API endpoint to match the required format
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.0-pro:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -60,7 +64,24 @@ const Index = () => {
       if (!response.ok) {
         const responseData = await response.text();
         console.error("Gemini API Error:", responseData);
-        throw new Error(`Gemini API error: ${response.status}`);
+        
+        // If API fails, fallback to demo mode
+        setIsDemoMode(true);
+        const mockResponse = generateMockAIResponse(message);
+        
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: mockResponse.summary }
+        ]);
+        setCurrentTrip(mockResponse.trip);
+        
+        toast({
+          title: 'Demo Mode Activated',
+          description: 'Using mock data due to API issues. Your actual API key may be incorrect or the service may be experiencing issues.',
+          variant: 'default',
+        });
+        
+        return;
       }
 
       const data = await response.json();
@@ -117,6 +138,7 @@ const Index = () => {
           { role: 'assistant', content: parsed.summary }
         ]);
         setCurrentTrip(parsed.trip);
+        setIsDemoMode(false);
       } catch (e) {
         throw new Error(`Failed to parse Gemini response: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -136,6 +158,21 @@ const Index = () => {
         title: 'Error',
         description: errorMsg,
         variant: 'destructive',
+      });
+      
+      // Fallback to demo mode if there's an error
+      setIsDemoMode(true);
+      const mockResponse = generateMockAIResponse(message);
+      
+      setMessages(prev => [
+        ...prev.slice(0, -1), // Remove the error message
+        { role: 'assistant', content: mockResponse.summary }
+      ]);
+      setCurrentTrip(mockResponse.trip);
+      
+      toast({
+        title: 'Demo Mode Activated',
+        description: 'Using mock data due to API issues.',
       });
     } finally {
       setIsLoading(false);
@@ -178,7 +215,16 @@ const Index = () => {
     <div className="flex flex-col min-h-screen bg-background hero-pattern">
       <Header />
 
-      {errorMessage && (
+      {isDemoMode && (
+        <div className="flex justify-center bg-amber-50 py-2 border-b border-amber-300">
+          <div className="flex items-center gap-2 text-amber-800 text-sm">
+            <span>⚠️</span>
+            <span>Demo Mode: Using mock data. API connection unavailable.</span>
+          </div>
+        </div>
+      )}
+
+      {errorMessage && !isDemoMode && (
         <div className="flex justify-center bg-yellow-50 py-2 border-b border-yellow-300">
           <div className="flex flex-col items-center gap-2">
             <Alert variant="destructive" className="py-2 w-full max-w-md">
