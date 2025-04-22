@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import ChatContainer from '@/components/ChatContainer';
@@ -6,21 +7,21 @@ import { Trip, AIMessage, Expense } from '@/types';
 import AddExpense from '@/components/AddExpense';
 import ExpensesList from '@/components/ExpensesList';
 import { useToast } from '@/components/ui/use-toast';
-import { v4 as uuidv4 } from 'uuid';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { generateMockAIResponse } from '@/utils/trip-utils';
-
-const AI_SYSTEM_PROMPT = "You are an expert travel planner. Given a user's prompt, extract destination, trip start date (use today's date unless specified), number of days (as integer), total budget (USD), then generate a detailed day-by-day itinerary with each day's activities in a structured way including: time, title, description, location (city), category (accommodation, attraction, food, transportation, other), and estimated cost (USD). Also, include an English summary. Respond only with a single valid JSON object in this exact format (do not add any extra commentary or text): {trip: Trip, summary: string}, where Trip matches this schema: { id: string, destination: string, startDate: string, endDate: string, budget: number, days: Array<{day: number, activities: Array<{id: string, time: string, title: string, description: string, location: string, cost: number, category: string}>}>, expenses: [], totalExpenses: number }.";
-
-const GEMINI_API_KEY = "AIzaSyDWSJavzQNqSOoRooFxWKKNbeDjpz3Dtmw";
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useGeminiAPI } from '@/hooks/useGeminiAPI';
 
 const Index = () => {
   const { toast } = useToast();
   const [messages, setMessages] = useState<AIMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  
+  // Use our custom Gemini API hook
+  const { 
+    generateTripPlan, 
+    isLoading, 
+    errorMessage, 
+    isDemoMode 
+  } = useGeminiAPI();
 
   useEffect(() => {
     setMessages([
@@ -33,143 +34,16 @@ const Index = () => {
 
   const handleSendMessage = async (message: string) => {
     setMessages(prev => [...prev, { role: 'user', content: message }]);
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: AI_SYSTEM_PROMPT },
-                { text: message }
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 1800,
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const responseData = await response.text();
-        console.error("Gemini API Error:", responseData);
-        
-        setIsDemoMode(true);
-        const mockResponse = generateMockAIResponse(message);
-        
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: mockResponse.summary }
-        ]);
-        setCurrentTrip(mockResponse.trip);
-        
-        toast({
-          title: 'Demo Mode Activated',
-          description: 'Using mock data due to API issues. Your actual API key may be incorrect or the service may be experiencing issues.',
-          variant: 'default',
-        });
-        
-        return;
-      }
-
-      const data = await response.json();
-      const assistantContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      
-      let jsonStr = "";
-
-      let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
-      if (match) {
-        jsonStr = match[1];
-      } else {
-        match = assistantContent.match(/```([\s\S]+?)```/);
-        if (match) {
-          jsonStr = match[1];
-        } else {
-          match = assistantContent.match(/\{[\s\S]*\}/m);
-          if (match) {
-            jsonStr = match[0];
-          } else {
-            jsonStr = assistantContent;
-          }
-        }
-      }
-
-      jsonStr = jsonStr.trim();
-
-      try {
-        let parsed = JSON.parse(jsonStr);
-        
-        if (!parsed.trip || !parsed.summary) {
-          throw new Error("Response missing required trip or summary property");
-        }
-        
-        const trip = parsed.trip;
-        if (!trip.destination || !Array.isArray(trip.days)) {
-          throw new Error("Trip data is incomplete");
-        }
-        
-        if (!trip.id) {
-          trip.id = uuidv4();
-        }
-        
-        if (!Array.isArray(trip.expenses)) {
-          trip.expenses = [];
-        }
-        
-        if (typeof trip.totalExpenses !== 'number') {
-          trip.totalExpenses = 0;
-        }
-
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: parsed.summary }
-        ]);
-        setCurrentTrip(parsed.trip);
-        setIsDemoMode(false);
-      } catch (e) {
-        throw new Error(`Failed to parse Gemini response: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } catch (error) {
-      console.error('Error generating trip plan:', error);
-      
-      const errorMsg = `Sorry, I encountered an error while planning your trip. ${error instanceof Error ? error.message : String(error)}`;
-      
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: errorMsg
-      }]);
-      
-      setErrorMessage(errorMsg);
-
-      toast({
-        title: 'Error',
-        description: errorMsg,
-        variant: 'destructive',
-      });
-      
-      setIsDemoMode(true);
-      const mockResponse = generateMockAIResponse(message);
-      
+    
+    const { aiResponse, responseMessage, isDemoMode: demoModeActivated, error } = 
+      await generateTripPlan(message);
+    
+    if (aiResponse) {
       setMessages(prev => [
-        ...prev.slice(0, -1),
-        { role: 'assistant', content: mockResponse.summary }
+        ...prev,
+        { role: 'assistant', content: responseMessage }
       ]);
-      setCurrentTrip(mockResponse.trip);
-      
-      toast({
-        title: 'Demo Mode Activated',
-        description: 'Using mock data due to API issues.',
-      });
-    } finally {
-      setIsLoading(false);
+      setCurrentTrip(aiResponse.trip);
     }
   };
 
