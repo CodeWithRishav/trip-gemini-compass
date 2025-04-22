@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import ChatContainer from '@/components/ChatContainer';
@@ -38,8 +37,7 @@ const Index = () => {
     setErrorMessage(null);
 
     try {
-      // Updated Gemini API endpoint to match the required format
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.0-pro:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -47,7 +45,6 @@ const Index = () => {
         body: JSON.stringify({
           contents: [
             {
-              role: "user",
               parts: [
                 { text: AI_SYSTEM_PROMPT },
                 { text: message }
@@ -65,7 +62,6 @@ const Index = () => {
         const responseData = await response.text();
         console.error("Gemini API Error:", responseData);
         
-        // If API fails, fallback to demo mode
         setIsDemoMode(true);
         const mockResponse = generateMockAIResponse(message);
         
@@ -89,7 +85,6 @@ const Index = () => {
       
       let jsonStr = "";
 
-      // Try to extract JSON from the response
       let match = assistantContent.match(/```json\s*([\s\S]+?)```/);
       if (match) {
         jsonStr = match[1];
@@ -160,12 +155,11 @@ const Index = () => {
         variant: 'destructive',
       });
       
-      // Fallback to demo mode if there's an error
       setIsDemoMode(true);
       const mockResponse = generateMockAIResponse(message);
       
       setMessages(prev => [
-        ...prev.slice(0, -1), // Remove the error message
+        ...prev.slice(0, -1),
         { role: 'assistant', content: mockResponse.summary }
       ]);
       setCurrentTrip(mockResponse.trip);
